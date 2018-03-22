@@ -61,6 +61,11 @@ ifeq ($(ARCH),amd64)
 	gcloud docker -- push $(IMAGE):$(TAG)
 endif
 
+push-to-docker-hub: .container-${ARCH}
+	@docker login -u $(DOCKER_USERNAME) -p $(DOCKER_PASSWORD)
+	docker tag ${MULTI_ARCH_IMG}:$(TAG) $(DOCKER_ACCOUNT)/rescheduler:$(TAG)
+	docker push $(DOCKER_ACCOUNT)/rescheduler:$(TAG)
+
 clean:
 	rm -f rescheduler
 

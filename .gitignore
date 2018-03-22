@@ -21,3 +21,5 @@
 Session.vim
 .netrwhist
 
+# idea files
+.idea/
