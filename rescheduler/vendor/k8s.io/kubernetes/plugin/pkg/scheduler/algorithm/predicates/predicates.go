@@ -975,7 +975,11 @@ func (c *PodAffinityChecker) anyPodMatchesPodAffinityTerm(pod *v1.Pod, allPods [
 		return false, false, err
 	}
 	for _, existingPod := range allPods {
+		glog.Infof("PodAffinityChecker anyPodMatchesPodAffinityTerm pod %v", podName(existingPod))
+
 		match := priorityutil.PodMatchesTermsNamespaceAndSelector(existingPod, namespaces, selector)
+		glog.Infof("PodAffinityChecker anyPodMatchesPodAffinityTerm match: %v", match)
+
 		if match {
 			matchingPodExists = true
 			existingPodNode, err := c.info.GetNodeInfo(existingPod.Spec.NodeName)
@@ -1075,13 +1079,22 @@ func getMatchingAntiAffinityTerms(pod *v1.Pod, nodeInfoMap map[string]*scheduler
 func (c *PodAffinityChecker) getMatchingAntiAffinityTerms(pod *v1.Pod, allPods []*v1.Pod) ([]matchingPodAntiAffinityTerm, error) {
 	var result []matchingPodAntiAffinityTerm
 	for _, existingPod := range allPods {
+		glog.Infof("PodAffinityChecker getMatchingAntiAffinityTerms pod %v", podName(existingPod))
+
 		affinity := schedulercache.ReconcileAffinity(existingPod)
 		if affinity != nil && affinity.PodAntiAffinity != nil {
+			glog.Infof("PodAffinityChecker getMatchingAntiAffinityTerms pod node: %v, affinity: %v", existingPod.Spec.NodeName, affinity.PodAntiAffinity)
+
 			existingPodNode, err := c.info.GetNodeInfo(existingPod.Spec.NodeName)
 			if err != nil {
+				glog.Infof("PodAffinityChecker getMatchingAntiAffinityTerms unable to get node info for node: %v", existingPod.Spec.NodeName)
 				return nil, err
 			}
+
+			glog.Infof("PodAffinityChecker getMatchingAntiAffinityTerms checking terms")
 			for _, term := range getPodAntiAffinityTerms(affinity.PodAntiAffinity) {
+				glog.Infof("PodAffinityChecker getMatchingAntiAffinityTerms terms: %v", term)
+
 				namespaces := priorityutil.GetNamespacesFromPodAffinityTerm(existingPod, &term)
 				selector, err := metav1.LabelSelectorAsSelector(term.LabelSelector)
 				if err != nil {
@@ -1100,38 +1113,50 @@ func (c *PodAffinityChecker) getMatchingAntiAffinityTerms(pod *v1.Pod, allPods [
 // Checks if scheduling the pod onto this node would break any anti-affinity
 // rules indicated by the existing pods.
 func (c *PodAffinityChecker) satisfiesExistingPodsAntiAffinity(pod *v1.Pod, meta interface{}, node *v1.Node) bool {
+	glog.Infof("PodAffinityChecker satisfiesExistingPodsAntiAffinity for pod %v, node: %v",
+		podName(pod), node.Name)
 	var matchingTerms []matchingPodAntiAffinityTerm
 	if predicateMeta, ok := meta.(*predicateMetadata); ok {
 		matchingTerms = predicateMeta.matchingAntiAffinityTerms
 	} else {
 		allPods, err := c.podLister.List(labels.Everything())
 		if err != nil {
-			glog.V(10).Infof("Failed to get all pods, %+v", err)
+			glog.V(2).Infof("Failed to get all pods, %+v", err)
 			return false
 		}
+		glog.Infof("PodAffinityChecker satisfiesExistingPodsAntiAffinity callig getMatchingAntiAffinityTerms for pods %v",
+			podNames(allPods))
 		if matchingTerms, err = c.getMatchingAntiAffinityTerms(pod, allPods); err != nil {
-			glog.V(10).Infof("Failed to get all terms that pod %+v matches, err: %+v", podName(pod), err)
+			glog.V(2).Infof("Failed to get all terms that pod %+v matches, err: %+v", podName(pod), err)
 			return false
 		}
 	}
 	for _, term := range matchingTerms {
 		if len(term.term.TopologyKey) == 0 {
-			glog.V(10).Infof("Empty topologyKey is not allowed except for PreferredDuringScheduling pod anti-affinity")
+			glog.V(2).Infof("Empty topologyKey is not allowed except for PreferredDuringScheduling pod anti-affinity")
 			return false
 		}
 		if priorityutil.NodesHaveSameTopologyKey(node, term.node, term.term.TopologyKey) {
-			glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAntiAffinityTerm %v",
+			glog.V(2).Infof("Cannot schedule pod %+v onto node %v,because of PodAntiAffinityTerm %v",
 				podName(pod), node.Name, term.term)
 			return false
 		}
 	}
-	if glog.V(10) {
+	if glog.V(2) {
 		// We explicitly don't do glog.V(10).Infof() to avoid computing all the parameters if this is
 		// not logged. There is visible performance gain from it.
 		glog.Infof("Schedule Pod %+v on Node %+v is allowed, existing pods anti-affinity rules satisfied.",
 			podName(pod), node.Name)
 	}
 	return true
+}
+
+func podNames(pods []*v1.Pod) []string {
+	podnames := make([]string, 0)
+	for _, pod := range pods {
+		podnames = append(podnames, pod.Name)
+	}
+	return podnames
 }
 
 // Checks if scheduling the pod onto this node would break any rules of this pod.
@@ -1141,11 +1166,14 @@ func (c *PodAffinityChecker) satisfiesPodsAffinityAntiAffinity(pod *v1.Pod, node
 		return false
 	}
 
+	glog.Infof("PodAffinityChecker satisfiesExistingPodsAntiAffinity for pod %v, node: %v",
+		podName(pod), node.Name)
+
 	// Check all affinity terms.
 	for _, term := range getPodAffinityTerms(affinity.PodAffinity) {
 		termMatches, matchingPodExists, err := c.anyPodMatchesPodAffinityTerm(pod, allPods, node, &term)
 		if err != nil {
-			glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAffinityTerm %v, err: %v",
+			glog.V(2).Infof("Cannot schedule pod %+v onto node %v,because of PodAffinityTerm %v, err: %v",
 				podName(pod), node.Name, term, err)
 			return false
 		}
@@ -1154,20 +1182,20 @@ func (c *PodAffinityChecker) satisfiesPodsAffinityAntiAffinity(pod *v1.Pod, node
 			// no other such pods, then disregard the requirement. This is necessary to
 			// not block forever because the first pod of the collection can't be scheduled.
 			if matchingPodExists {
-				glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAffinityTerm %v, err: %v",
+				glog.V(2).Infof("Cannot schedule pod %+v onto node %v,because of PodAffinityTerm %v, err: %v",
 					podName(pod), node.Name, term, err)
 				return false
 			}
 			namespaces := priorityutil.GetNamespacesFromPodAffinityTerm(pod, &term)
 			selector, err := metav1.LabelSelectorAsSelector(term.LabelSelector)
 			if err != nil {
-				glog.V(10).Infof("Cannot parse selector on term %v for pod %v. Details %v",
+				glog.V(2).Infof("Cannot parse selector on term %v for pod %v. Details %v",
 					term, podName(pod), err)
 				return false
 			}
 			match := priorityutil.PodMatchesTermsNamespaceAndSelector(pod, namespaces, selector)
 			if !match {
-				glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAffinityTerm %v, err: %v",
+				glog.V(2).Infof("Cannot schedule pod %+v onto node %v,because of PodAffinityTerm %v, err: %v",
 					podName(pod), node.Name, term, err)
 				return false
 			}
@@ -1178,13 +1206,13 @@ func (c *PodAffinityChecker) satisfiesPodsAffinityAntiAffinity(pod *v1.Pod, node
 	for _, term := range getPodAntiAffinityTerms(affinity.PodAntiAffinity) {
 		termMatches, _, err := c.anyPodMatchesPodAffinityTerm(pod, allPods, node, &term)
 		if err != nil || termMatches {
-			glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAntiAffinityTerm %v, err: %v",
+			glog.V(2).Infof("Cannot schedule pod %+v onto node %v,because of PodAntiAffinityTerm %v, err: %v",
 				podName(pod), node.Name, term, err)
 			return false
 		}
 	}
 
-	if glog.V(10) {
+	if glog.V(2) {
 		// We explicitly don't do glog.V(10).Infof() to avoid computing all the parameters if this is
 		// not logged. There is visible performance gain from it.
 		glog.Infof("Schedule Pod %+v on Node %+v is allowed, pod afinnity/anti-affinity constraints satisfied.",

@@ -241,6 +241,7 @@ func (c *ConfigFactory) addNodeToCache(obj interface{}) {
 		return
 	}
 
+	glog.Infof("addNodeToCache node: %v", node.Name)
 	if err := c.schedulerCache.AddNode(node); err != nil {
 		glog.Errorf("scheduler cache AddNode failed: %v", err)
 	}
@@ -258,6 +259,7 @@ func (c *ConfigFactory) updateNodeInCache(oldObj, newObj interface{}) {
 		return
 	}
 
+	glog.Infof("updateNodeInCache node: %v", newNode.Name)
 	if err := c.schedulerCache.UpdateNode(oldNode, newNode); err != nil {
 		glog.Errorf("scheduler cache UpdateNode failed: %v", err)
 	}
@@ -279,6 +281,8 @@ func (c *ConfigFactory) deleteNodeFromCache(obj interface{}) {
 		glog.Errorf("cannot convert to *v1.Node: %v", t)
 		return
 	}
+	glog.Infof("deleteNodeFromCache node: %v", node.Name)
+
 	if err := c.schedulerCache.RemoveNode(node); err != nil {
 		glog.Errorf("scheduler cache RemoveNode failed: %v", err)
 	}

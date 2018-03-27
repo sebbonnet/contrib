@@ -25,6 +25,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 	api "k8s.io/kubernetes/pkg/api"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
+	"github.com/golang/glog"
+
 )
 
 // NodeLister helps list Nodes.
@@ -58,6 +60,7 @@ func (s *nodeLister) List(selector labels.Selector) (ret []*v1.Node, err error) 
 func (s *nodeLister) Get(name string) (*v1.Node, error) {
 	key := &v1.Node{ObjectMeta: meta_v1.ObjectMeta{Name: name}}
 	obj, exists, err := s.indexer.Get(key)
+	glog.Infof("node Get name: %v, key: %v, exists: %v, err: %v", name, key, exists, err)
 	if err != nil {
 		return nil, err
 	}

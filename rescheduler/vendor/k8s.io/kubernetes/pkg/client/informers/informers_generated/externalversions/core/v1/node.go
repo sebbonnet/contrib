@@ -28,6 +28,7 @@ import (
 	internalinterfaces "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions/internalinterfaces"
 	v1 "k8s.io/kubernetes/pkg/client/listers/core/v1"
 	time "time"
+	"github.com/golang/glog"
 )
 
 // NodeInformer provides access to a shared informer and lister for
@@ -45,7 +46,9 @@ func newNodeInformer(client clientset.Interface, resyncPeriod time.Duration) cac
 	sharedIndexInformer := cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options meta_v1.ListOptions) (runtime.Object, error) {
-				return client.CoreV1().Nodes().List(options)
+				initialNodeList, err := client.CoreV1().Nodes().List(options)
+				glog.Infof("newNodeInformer initial node list: %v, options: %v, err: %v", initialNodeList, options, err)
+				return initialNodeList, err
 			},
 			WatchFunc: func(options meta_v1.ListOptions) (watch.Interface, error) {
 				return client.CoreV1().Nodes().Watch(options)
@@ -55,6 +58,7 @@ func newNodeInformer(client clientset.Interface, resyncPeriod time.Duration) cac
 		resyncPeriod,
 		cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
+	glog.Infof("newNodeInformer resyncPeriod: %v", resyncPeriod)
 
 	return sharedIndexInformer
 }

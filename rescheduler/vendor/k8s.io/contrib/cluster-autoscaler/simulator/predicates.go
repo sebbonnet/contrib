@@ -18,6 +18,7 @@ package simulator
 
 import (
 	"fmt"
+	"time"
 
 	kube_util "k8s.io/contrib/cluster-autoscaler/utils/kubernetes"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
@@ -27,14 +28,20 @@ import (
 	"k8s.io/kubernetes/plugin/pkg/scheduler/algorithm/predicates"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/factory"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
+	"k8s.io/kubernetes/plugin/pkg/scheduler"
 
 	// We need to import provider to intialize default scheduler.
 	_ "k8s.io/kubernetes/plugin/pkg/scheduler/algorithmprovider"
+	"github.com/golang/glog"
+	"k8s.io/apimachinery/pkg/labels"
+	kube_utils "k8s.io/contrib/cluster-autoscaler/utils/kubernetes"
 )
 
 // PredicateChecker checks whether all required predicates are matched for given Pod and Node
 type PredicateChecker struct {
 	predicates map[string]algorithm.FitPredicate
+	schedulerConfigFactory scheduler.Configurator
+	readyNodeLister *kube_utils.ReadyNodeLister
 }
 
 // NewPredicateChecker builds PredicateChecker.
@@ -43,7 +50,7 @@ func NewPredicateChecker(kubeClient kube_client.Interface) (*PredicateChecker, e
 	if err != nil {
 		return nil, err
 	}
-	informerFactory := informers.NewSharedInformerFactory(kubeClient, 0)
+	informerFactory := informers.NewSharedInformerFactory(kubeClient, 30*time.Second)
 
 	schedulerConfigFactory := factory.NewConfigFactory(
 		"cluster-autoscaler",
@@ -57,6 +64,9 @@ func NewPredicateChecker(kubeClient kube_client.Interface) (*PredicateChecker, e
 		apiv1.DefaultHardPodAffinitySymmetricWeight,
 	)
 
+	stopChannel := make(chan struct{})
+	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
+
 	predicates, err := schedulerConfigFactory.GetPredicates(provider.FitPredicateKeys)
 	predicates["ready"] = isNodeReadyAndSchedulablePredicate
 	if err != nil {
@@ -65,12 +75,16 @@ func NewPredicateChecker(kubeClient kube_client.Interface) (*PredicateChecker, e
 	schedulerConfigFactory.Run()
 	return &PredicateChecker{
 		predicates: predicates,
+		schedulerConfigFactory: schedulerConfigFactory,
+		readyNodeLister: nodeLister,
 	}, nil
 }
 
 func isNodeReadyAndSchedulablePredicate(pod *apiv1.Pod, meta interface{}, nodeInfo *schedulercache.NodeInfo) (bool,
 	[]algorithm.PredicateFailureReason, error) {
 	ready := kube_util.IsNodeReadyAndSchedulable(nodeInfo.Node())
+	glog.Infof("isNodeReadyAndSchedulablePredicate node: %v, ready: %v", nodeInfo.Node().Name, ready)
+
 	if !ready {
 		return false, []algorithm.PredicateFailureReason{predicates.NewFailureReason("node is unready")}, nil
 	}
@@ -103,6 +117,18 @@ func (p *PredicateChecker) FitsAny(pod *apiv1.Pod, nodeInfos map[string]*schedul
 
 // CheckPredicates checks if the given pod can be placed on the given node.
 func (p *PredicateChecker) CheckPredicates(pod *apiv1.Pod, nodeInfo *schedulercache.NodeInfo) error {
+	nodes, _ := p.schedulerConfigFactory.GetNodeLister().List(labels.Everything())
+	glog.Infof("Node lister has %v nodes", len(nodes))
+	for _, node := range nodes {
+		glog.Infof("Node lister has node: %v", node.Name)
+	}
+
+	readyNodes, _ := p.readyNodeLister.List()
+	glog.Infof("Node ready lister has %v nodes", len(readyNodes))
+	for _, node := range readyNodes {
+		glog.Infof("Node ready lister has node: %v", node.Name)
+	}
+
 	for _, predicate := range p.predicates {
 		match, failureReason, err := predicate(pod, nil, nodeInfo)
 

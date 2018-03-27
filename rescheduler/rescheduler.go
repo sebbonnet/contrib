@@ -162,6 +162,7 @@ func main() {
 							continue
 						}
 
+						glog.Infof("Found potential %d candidate nodes", len(nodes))
 						node := findNodeForPod(kubeClient, predicateChecker, nodes, pod)
 						if node == nil {
 							glog.Errorf("Pod %s can't be scheduled on any existing node.", podId(pod))
@@ -400,12 +401,15 @@ func addTaint(client kube_client.Interface, node *apiv1.Node, value string) erro
 // TODO(piosz): add a prioritization to this logic
 func findNodeForPod(client kube_client.Interface, predicateChecker *ca_simulator.PredicateChecker, nodes []*apiv1.Node, pod *apiv1.Pod) *apiv1.Node {
 	for _, node := range nodes {
+		glog.Infof("Checking candidate node %v", node.Name)
+
 		// ignore nodes with taints
 		if err := checkTaints(node); err != nil {
 			glog.Warningf("Skipping node %v due to %v", node.Name, err)
 		}
 
 		requiredPods, _, err := groupPods(client, node)
+		glog.Infof("Found requiredPods for candidate node %v", podNames(requiredPods))
 		if err != nil {
 			glog.Warningf("Skipping node %v due to error: %v", node.Name, err)
 			continue
@@ -414,11 +418,21 @@ func findNodeForPod(client kube_client.Interface, predicateChecker *ca_simulator
 		nodeInfo := schedulercache.NewNodeInfo(requiredPods...)
 		nodeInfo.SetNode(node)
 
-		if err := predicateChecker.CheckPredicates(pod, nodeInfo); err == nil {
+		err = predicateChecker.CheckPredicates(pod, nodeInfo)
+		glog.Infof("Predicate check result: %v", err)
+		if err == nil {
 			return node
 		}
 	}
 	return nil
+}
+
+func podNames(pods []*apiv1.Pod) []string {
+	podnames := make([]string, 0)
+	for _, pod := range pods {
+		podnames = append(podnames, pod.Name)
+	}
+	return podnames
 }
 
 func checkTaints(node *apiv1.Node) error {

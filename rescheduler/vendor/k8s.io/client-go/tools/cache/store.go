@@ -21,6 +21,8 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	"github.com/golang/glog"
+
 )
 
 // Store is a generic object storage interface. Reflector knows how to watch a server
@@ -199,6 +201,10 @@ func (c *cache) Get(obj interface{}) (item interface{}, exists bool, err error) 
 // GetByKey is completely threadsafe as long as you treat all items as immutable.
 func (c *cache) GetByKey(key string) (item interface{}, exists bool, err error) {
 	item, exists = c.cacheStorage.Get(key)
+	glog.Infof("store GetByKey key: %v, item: %v, exists %v", key, item, exists)
+	if !exists {
+		glog.Infof("store keys: %v", c.cacheStorage.ListKeys())
+	}
 	return item, exists, nil
 }
 
